@@ -2,6 +2,7 @@
 "use strict";
 
 const express = require("express");
+const cors = require("cors");              // ← agregado para permitir conexión del frontend
 const { checkEnv } = require("./helpers/check-env");
 const { downloadAudio } = require("./helpers/downloader");
 const { compressMp3IfNeeded } = require("./helpers/ffmpeg-tools");
@@ -15,13 +16,20 @@ try {
 } catch (err) {
     console.error("[FATAL] Falló la verificación de entorno.");
     console.error(err.message);
-    process.exit(1); // Salir con error si falta ffmpeg o yt-dlp
+    process.exit(1);
 }
 
 // 2) Middlewares
 app.use(express.json());
 
-// 3) Ruta básica de prueba (GET /)
+// CORS: permitir que el frontend (5173) llame al backend (3000)
+app.use(
+    cors({
+        origin: "http://localhost:5173",
+    })
+);
+
+// 3) Ruta básica
 app.get("/", (req, res) => {
     res
         .status(200)
@@ -29,7 +37,7 @@ app.get("/", (req, res) => {
         .send("Servidor base YouTube → MP3 activo.\n");
 });
 
-// 4) Ruta principal de conversión: YouTube URL → MP3 (con compresión opcional)
+// 4) Ruta principal de conversión
 app.post("/convert", async (req, res) => {
     try {
         const { url, maxSizeMB } = req.body;
@@ -45,14 +53,14 @@ app.post("/convert", async (req, res) => {
         const downloadResult = await downloadAudio(url);
         // { filePath, fileName, sizeBytes, logs }
 
-        // 2) Comprimir si es necesario (por defecto 25 MB si no se envía otro valor)
+        // 2) Comprimir si es necesario
         const compressResult = await compressMp3IfNeeded({
             filePath: downloadResult.filePath,
             sizeBytes: downloadResult.sizeBytes,
             maxSizeMB: maxSizeMB || 25,
         });
-        // { compressed, filePath, fileName, sizeBytes, logs }
 
+        // 3) Respuesta final
         return res.json({
             success: true,
             original: {
@@ -73,7 +81,6 @@ app.post("/convert", async (req, res) => {
     } catch (err) {
         console.error("Error en /convert:", err);
 
-        // Si viene en formato { error, logs } desde los helpers
         if (err && err.error) {
             return res.status(500).json({
                 success: false,
@@ -82,7 +89,6 @@ app.post("/convert", async (req, res) => {
             });
         }
 
-        // Error genérico
         return res.status(500).json({
             success: false,
             error: err.message || "Error interno en /convert",
@@ -94,3 +100,4 @@ app.post("/convert", async (req, res) => {
 app.listen(PORT, () => {
     console.log(`Servidor base escuchando en http://localhost:${PORT}`);
 });
+
